@@ -148,3 +148,83 @@ bike_data <- bike_data |>
   filter(functioning_day == "Yes")
 ```
 
+Now we'll simplify the dataset by summarizing across the hours so that each day has a single observation. We'll group by `date`, `seasons`, and `holiday`, then compute the total bike rentals, `rainfall`, and `snowfall` for each day. For the remaining weather variables, we'll compute the daily average.
+
+```{r}
+bike_data <- bike_data |>
+  group_by(date, seasons, holiday) |>
+  summarise(
+    rented_bike_count = sum(rented_bike_count),
+    rainfall = sum(rainfall),
+    snowfall = sum(snowfall),
+    temp = mean(temp),
+    humidity = mean(humidity),
+    wind_speed = mean(wind_speed),
+    visibility = mean(visibility),
+    dew_point_temp = mean(dew_point_temp),
+    solar_radiation = mean(solar_radiation),
+    .groups = "drop")
+
+bike_data
+```
+
+Now each row of our dataset represents a single day instead of a single hour. This will be the dataset we'll use for the remainder of our analysis.
+
+Now that we've aggregated our data so that each observation represents one day, let's recreate our summary statistics.
+
+```{r}
+summary(bike_data |>
+          select(where(is.numeric)))
+```
+
+We'll also summarize the bike rental counts across our categorical variables.
+
+```{r}
+bike_data |>
+  group_by(seasons) |>
+  summarise(
+    n = n(),
+    mean = mean(rented_bike_count),
+    median = median(rented_bike_count),
+    sd = sd(rented_bike_count)
+  )
+```
+
+```{r}
+bike_data |>
+  group_by(holiday) |>
+  summarise(
+    n = n(),
+    mean = mean(rented_bike_count),
+    median = median(rented_bike_count),
+    sd = sd(rented_bike_count)
+  )
+```
+
+Now let's explore some relationships between our variables with a few plots.
+
+Bike rentals appear to vary across the seasons.
+
+```{r}
+ggplot(bike_data,
+       aes(x = seasons, y = rented_bike_count)) +
+  geom_boxplot()
+```
+
+Bike rentals also appear to increase as the average daily temperature increases.
+
+```{r}
+ggplot(bike_data,
+       aes(x = temp, y = rented_bike_count)) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(method = "lm", se = FALSE)
+```
+
+Finally, let's examine the relationships between our numeric variables by computing their correlation matrix.
+
+```{r}
+bike_data |>
+  select(where(is.numeric)) |>
+  cor()
+```
+
