@@ -1,25 +1,150 @@
 ---
 title: "Ben Version"
 format: html
+editor_options: 
+  chunk_output_type: console
 ---
-
-## Quarto
-
-Quarto enables you to weave together content and executable code into a finished document. To learn more about Quarto see <https://quarto.org>.
-
-## Running Code
-
-When you click the **Render** button a document will be generated that includes both content and the output of embedded code. You can embed code like this:
-
 ```{r}
-1 + 1
+library(tidyverse)
+library(lubridate)
 ```
 
-You can add options to executable code like this 
+## Read in the data
+
+First lets read in our data with `read_csv()`.
 
 ```{r}
-#| echo: false
-2 * 2
+bike_data <- read_csv("SeoulBikeData.csv",
+                      locale = locale(encoding = "Windows-1252"))
 ```
 
-The `echo: false` option disables the printing of code (only output is displayed).
+## EDA
+
+Lets first check for any missing values in the dataset:
+
+```{r}
+colSums(is.na(bike_data))
+```
+
+There are no missing values in the dataset. Great!
+
+Next, we'll examined the structure of the dataset to verify that each variable had the correct data type. We'll also review summary statistics for the numeric variables and the unique values of the categorical variables to identify any unusual or unexpected values.
+
+`glimpse()` will tell us whether each variable is numeric, character, date, etc.
+
+```{r}
+glimpse(bike_data)
+```
+
+`summary()` will report the minimum, quartiles, median, mean, and maximum for numeric variables.
+
+```{r}
+summary(bike_data |>
+          select(where(is.numeric))) # only run on numeric vars
+```
+
+Now let's check for the unique values of the categorical variables:
+
+```{r}
+bike_data |>
+  select(where(is.character)) |>
+  map(unique) 
+```
+
+Lets change the `Date` variable from a character string to a date variable
+
+```{r}
+bike_data <- bike_data |>
+  mutate(Date = dmy(Date)) # dmy() function from lubridate package
+
+bike_data
+```
+
+Now lets take the rest of the character variables and turn them into factors
+
+```{r}
+bike_data <- bike_data |>
+  mutate(
+    Seasons = as.factor(Seasons),
+    Holiday = as.factor(Holiday),
+    `Functioning Day` = as.factor(`Functioning Day`))
+
+glimpse(bike_data) # it worked
+```
+
+Looks good! We'd like to have some easy-to-use variable names, so lets rename some of these variables.
+
+```{r}
+bike_data <- bike_data |>
+  rename(date = Date,
+         rented_bike_count = `Rented Bike Count`,
+         hour = Hour,
+         temp = `Temperature(°C)`,
+         humidity = `Humidity(%)`,
+         wind_speed = `Wind speed (m/s)`,
+         visibility = `Visibility (10m)`,
+         dew_point_temp = `Dew point temperature(°C)`,
+         solar_radiation = `Solar Radiation (MJ/m2)`,
+         rainfall = `Rainfall(mm)`,
+         snowfall = `Snowfall (cm)`,
+         seasons = Seasons,
+         holiday = Holiday, 
+         functioning_day = `Functioning Day`)
+
+names(bike_data) # check the updated names
+```
+
+Now let's create some summary statistics for the bike rental counts. We'll first look at the overall distribution of `rented_bike_count`.
+
+```{r}
+summary(bike_data$rented_bike_count)
+```
+
+Next, let's summarize the bike rental counts across each of our categorical variables.
+
+```{r}
+bike_data |>
+  group_by(seasons) |>
+  summarise(
+    n = n(),
+    mean = mean(rented_bike_count),
+    median = median(rented_bike_count),
+    sd = sd(rented_bike_count),
+    min = min(rented_bike_count),
+    max = max(rented_bike_count)
+  )
+```
+
+```{r}
+bike_data |>
+  group_by(holiday) |>
+  summarise(
+    n = n(),
+    mean = mean(rented_bike_count),
+    median = median(rented_bike_count),
+    sd = sd(rented_bike_count),
+    min = min(rented_bike_count),
+    max = max(rented_bike_count)
+  )
+```
+
+```{r}
+bike_data |>
+  group_by(functioning_day) |>
+  summarise(
+    n = n(),
+    mean = mean(rented_bike_count),
+    median = median(rented_bike_count),
+    sd = sd(rented_bike_count),
+    min = min(rented_bike_count),
+    max = max(rented_bike_count)
+  )
+```
+
+One thing immediately stands out. On days where `functioning_day` is `"No"`, there are no bike rentals at all. This makes sense because the bike rental system was not operating on those days. Since these observations don't represent normal bike rental activity, we'll remove them before fitting our predictive models.
+
+```{r}
+bike_data <- bike_data |>
+  filter(functioning_day == "Yes")
+```
+
