@@ -1,25 +1,410 @@
 ---
 title: "Ben Version"
 format: html
+editor_options: 
+  chunk_output_type: console
 ---
 
-## Quarto
-
-Quarto enables you to weave together content and executable code into a finished document. To learn more about Quarto see <https://quarto.org>.
-
-## Running Code
-
-When you click the **Render** button a document will be generated that includes both content and the output of embedded code. You can embed code like this:
-
 ```{r}
-1 + 1
+library(tidyverse)
+library(lubridate)
+library(tidymodels)
 ```
 
-You can add options to executable code like this 
+## Read in the data
+
+First lets read in our data with `read_csv()`.
 
 ```{r}
-#| echo: false
-2 * 2
+bike_data <- read_csv("SeoulBikeData.csv",
+                      locale = locale(encoding = "Windows-1252"))
 ```
 
-The `echo: false` option disables the printing of code (only output is displayed).
+## EDA
+
+Lets first check for any missing values in the dataset:
+
+```{r}
+colSums(is.na(bike_data))
+```
+
+There are no missing values in the dataset. Great!
+
+Next, we'll examined the structure of the dataset to verify that each variable had the correct data type. We'll also review summary statistics for the numeric variables and the unique values of the categorical variables to identify any unusual or unexpected values.
+
+`glimpse()` will tell us whether each variable is numeric, character, date, etc.
+
+```{r}
+glimpse(bike_data)
+```
+
+`summary()` will report the minimum, quartiles, median, mean, and maximum for numeric variables.
+
+```{r}
+summary(bike_data |>
+          select(where(is.numeric))) # only run on numeric vars
+```
+
+Now let's check for the unique values of the categorical variables:
+
+```{r}
+bike_data |>
+  select(where(is.character)) |>
+  map(unique) 
+```
+
+Lets change the `Date` variable from a character string to a date variable
+
+```{r}
+bike_data <- bike_data |>
+  mutate(Date = dmy(Date)) # dmy() function from lubridate package
+
+bike_data
+```
+
+Now lets take the rest of the character variables and turn them into factors
+
+```{r}
+bike_data <- bike_data |>
+  mutate(
+    Seasons = as.factor(Seasons),
+    Holiday = as.factor(Holiday),
+    `Functioning Day` = as.factor(`Functioning Day`))
+
+glimpse(bike_data) # it worked
+```
+
+Looks good! We'd like to have some easy-to-use variable names, so lets rename some of these variables.
+
+```{r}
+bike_data <- bike_data |>
+  rename(date = Date,
+         rented_bike_count = `Rented Bike Count`,
+         hour = Hour,
+         temp = `Temperature(°C)`,
+         humidity = `Humidity(%)`,
+         wind_speed = `Wind speed (m/s)`,
+         visibility = `Visibility (10m)`,
+         dew_point_temp = `Dew point temperature(°C)`,
+         solar_radiation = `Solar Radiation (MJ/m2)`,
+         rainfall = `Rainfall(mm)`,
+         snowfall = `Snowfall (cm)`,
+         seasons = Seasons,
+         holiday = Holiday, 
+         functioning_day = `Functioning Day`)
+
+names(bike_data) # check the updated names
+```
+
+Now let's create some summary statistics for the bike rental counts. We'll first look at the overall distribution of `rented_bike_count`.
+
+```{r}
+summary(bike_data$rented_bike_count)
+```
+
+Next, let's summarize the bike rental counts across each of our categorical variables.
+
+```{r}
+bike_data |>
+  group_by(seasons) |>
+  summarise(
+    n = n(),
+    mean = mean(rented_bike_count),
+    median = median(rented_bike_count),
+    sd = sd(rented_bike_count),
+    min = min(rented_bike_count),
+    max = max(rented_bike_count)
+  )
+```
+
+```{r}
+bike_data |>
+  group_by(holiday) |>
+  summarise(
+    n = n(),
+    mean = mean(rented_bike_count),
+    median = median(rented_bike_count),
+    sd = sd(rented_bike_count),
+    min = min(rented_bike_count),
+    max = max(rented_bike_count)
+  )
+```
+
+```{r}
+bike_data |>
+  group_by(functioning_day) |>
+  summarise(
+    n = n(),
+    mean = mean(rented_bike_count),
+    median = median(rented_bike_count),
+    sd = sd(rented_bike_count),
+    min = min(rented_bike_count),
+    max = max(rented_bike_count)
+  )
+```
+
+One thing immediately stands out. On days where `functioning_day` is `"No"`, there are no bike rentals at all. This makes sense because the bike rental system was not operating on those days. Since these observations don't represent normal bike rental activity, we'll remove them before fitting our predictive models.
+
+```{r}
+bike_data <- bike_data |>
+  filter(functioning_day == "Yes")
+```
+
+Now we'll simplify the dataset by summarizing across the hours so that each day has a single observation. We'll group by `date`, `seasons`, and `holiday`, then compute the total bike rentals, `rainfall`, and `snowfall` for each day. For the remaining weather variables, we'll compute the daily average.
+
+```{r}
+bike_data <- bike_data |>
+  group_by(date, seasons, holiday) |>
+  summarise(
+    rented_bike_count = sum(rented_bike_count),
+    rainfall = sum(rainfall),
+    snowfall = sum(snowfall),
+    temp = mean(temp),
+    humidity = mean(humidity),
+    wind_speed = mean(wind_speed),
+    visibility = mean(visibility),
+    dew_point_temp = mean(dew_point_temp),
+    solar_radiation = mean(solar_radiation),
+    .groups = "drop")
+
+bike_data
+```
+
+Now each row of our dataset represents a single day instead of a single hour. This will be the dataset we'll use for the remainder of our analysis.
+
+Now that we've aggregated our data so that each observation represents one day, let's recreate our summary statistics.
+
+```{r}
+summary(bike_data |>
+          select(where(is.numeric)))
+```
+
+We'll also summarize the bike rental counts across our categorical variables.
+
+```{r}
+bike_data |>
+  group_by(seasons) |>
+  summarise(
+    n = n(),
+    mean = mean(rented_bike_count),
+    median = median(rented_bike_count),
+    sd = sd(rented_bike_count)
+  )
+```
+
+```{r}
+bike_data |>
+  group_by(holiday) |>
+  summarise(
+    n = n(),
+    mean = mean(rented_bike_count),
+    median = median(rented_bike_count),
+    sd = sd(rented_bike_count)
+  )
+```
+
+Now let's explore some relationships between our variables with a few plots.
+
+Bike rentals appear to vary across the seasons.
+
+```{r}
+ggplot(bike_data,
+       aes(x = seasons, y = rented_bike_count)) +
+  geom_boxplot()
+```
+
+Bike rentals also appear to increase as the average daily temperature increases.
+
+```{r}
+ggplot(bike_data,
+       aes(x = temp, y = rented_bike_count)) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(method = "lm", se = FALSE)
+```
+
+Finally, let's examine the relationships between our numeric variables by computing their correlation matrix.
+
+```{r}
+bike_data |>
+  select(where(is.numeric)) |>
+  cor()
+```
+
+Next, we'll split the data into training and test sets. We'll use a 75/25 split and stratify on the `seasons` variable so that each season is represented in approximately the same proportion in both datasets. The training set will be used to fit our models, while the test set will be reserved for evaluating model performance.
+
+```{r}
+set.seed(123) # set seed for reproducibility
+
+bike_split <- initial_split(bike_data, prop = 0.75, strata = seasons)
+
+bike_train <- training(bike_split)
+bike_test  <- testing(bike_split)
+```
+
+Now we'll create a 10-fold cross-validation split using the training data. This will allow us to estimate model performance by repeatedly training the model on nine folds and validating it on the remaining fold. Each observation in the training set is used for validation exactly once.
+
+```{r}
+bike_folds <- vfold_cv(bike_train, v = 10, strata = seasons)
+
+bike_folds # check our folds
+```
+
+Now lets create some recipes.
+
+For our first multiple linear regression model, we'll create a recipe to preprocess the data. We won't use the `date` variable directly as a predictor, but we'll use it to create a new `day_type` variable that indicates whether each observation occurred on a weekday or weekend. After creating this variable, we'll remove the temporary day-of-week variable. We'll also standardize the numeric predictors so that they're all on a comparable scale, and we'll create dummy variables for the categorical predictors (`seasons`, `holiday`, and `day_type`) so they can be used in the regression model.
+
+```{r}
+bike_recipe1 <-
+  recipe(rented_bike_count ~ ., data = bike_train) |>
+  update_role(date, new_role = "ID") |>
+  step_date(date, features = "dow") |>
+  step_mutate(
+    day_type = factor(
+      if_else(date_dow %in% c("Sat", "Sun"),
+              "Weekend",
+              "Weekday")
+    )
+  ) |>
+  step_rm(date_dow) |>
+  step_normalize(all_numeric_predictors()) |>
+  step_dummy(all_nominal_predictors()) |>
+  step_zv(all_predictors())
+```
+
+For our second multiple linear regression model, we'll use the same preprocessing steps as before. In addition, we'll include several interaction terms to allow the effect of one predictor to depend on another. Specifically, we'll add interactions between `seasons` and `holiday`, `seasons` and `temp`, and `temp` and `rainfall`.
+
+```{r}
+bike_recipe2 <-
+  recipe(rented_bike_count ~ ., data = bike_train) |>
+  update_role(date, new_role = "ID") |>
+  step_date(date, features = "dow") |>
+  step_mutate(
+    day_type = factor(
+      if_else(date_dow %in% c("Sat", "Sun"),
+              "Weekend",
+              "Weekday")
+    )
+  ) |>
+  step_rm(date_dow) |>
+  step_normalize(all_numeric_predictors()) |>
+  step_dummy(all_nominal_predictors()) |>
+  step_zv(all_predictors()) |>
+  step_interact(terms = ~ starts_with("seasons_"):starts_with("holiday_")) |>
+  step_interact(terms = ~ starts_with("seasons_"):temp) |>
+  step_interact(terms = ~ temp:rainfall)
+```
+
+For our third multiple linear regression model, we'll use the same preprocessing steps and interaction terms as in the second recipe. In addition, we'll include quadratic terms for each numeric predictor to allow the model to capture nonlinear relationships between the weather variables and bike rentals.
+
+```{r}
+bike_recipe3 <- 
+  recipe(rented_bike_count ~ ., data = bike_train) |>
+  step_date(date, features = "dow") |>
+  step_mutate(
+    day_type = factor(
+      if_else(
+        date_dow %in% c("Sat", "Sun"),
+        "Weekend",
+        "Weekday"
+      )
+    )
+  ) |>
+  step_rm(date, date_dow) |>
+  step_normalize(all_numeric_predictors()) |>
+  step_dummy(seasons, holiday, day_type) |>
+  step_interact(terms = ~ starts_with("seasons_"):starts_with("holiday_")) |>
+  step_interact(terms = ~ starts_with("seasons_"):temp) |>
+  step_interact(terms = ~ temp:rainfall) |>
+  step_mutate(
+    temp_sq = temp^2,
+    humidity_sq = humidity^2,
+    wind_speed_sq = wind_speed^2,
+    visibility_sq = visibility^2,
+    dew_point_temp_sq = dew_point_temp^2,
+    solar_radiation_sq = solar_radiation^2,
+    rainfall_sq = rainfall^2,
+    snowfall_sq = snowfall^2
+  )
+```
+
+Now that we've created our preprocessing recipes, we'll define a multiple linear regression model using the `"lm"` engine. We'll then combine the model with each recipe in a workflow and evaluate each model using 10-fold cross-validation on the training set. We'll compare the cross-validation results to determine which model performs best.
+
+```{r}
+# define the model
+bike_lm <-
+  linear_reg() |>
+  set_engine("lm")
+```
+
+```{r}
+# create workflows
+bike_wf1 <-
+  workflow() |>
+  add_recipe(bike_recipe1) |>
+  add_model(bike_lm)
+
+bike_wf2 <-
+  workflow() |>
+  add_recipe(bike_recipe2) |>
+  add_model(bike_lm)
+
+bike_wf3 <-
+  workflow() |>
+  add_recipe(bike_recipe3) |>
+  add_model(bike_lm)
+```
+
+```{r}
+# fit the models
+set.seed(123) # set seed for reproducibility
+
+bike_fit1 <-
+  fit_resamples(
+    bike_wf1,
+    resamples = bike_folds
+  )
+
+bike_fit2 <-
+  fit_resamples(
+    bike_wf2,
+    resamples = bike_folds
+  )
+
+bike_fit3 <-
+  fit_resamples(
+    bike_wf3,
+    resamples = bike_folds
+  )
+```
+
+```{r}
+# compare the models
+collect_metrics(bike_fit1)
+collect_metrics(bike_fit2)
+collect_metrics(bike_fit3)
+```
+
+Based on these results, `bike_fit3` is our best-performing model with an RMSE of `r round(collect_metrics(bike_fit3)[1,3], 2)`. It also yields the highest $R^2$ value of `r round(collect_metrics(bike_fit3)[2,3], 2)`.
+
+Since the third recipe produced the best cross-validation performance, we'll fit this model to the entire training dataset and evaluate its performance on the test dataset. We'll then examine the RMSE on the test set and extract the estimated regression coefficients from the final fitted model.
+
+```{r}
+# fit the final model
+bike_final_fit <- 
+  last_fit(
+    bike_wf3,
+    split = bike_split
+  )
+```
+
+```{r}
+# compute the test RMSE
+collect_metrics(bike_final_fit)
+```
+
+```{r}
+# extract the coefficient table
+bike_final_fit |>
+  extract_fit_parsnip() |>
+  tidy()
+```
