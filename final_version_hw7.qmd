@@ -248,6 +248,8 @@ bike_data |>
   cor()
 ```
 
+# Splitting the Data
+
 Next, we'll split the data into training and test sets. We'll use a 75/25 split and stratify on the `seasons` variable so that each season is represented in approximately the same proportion in both datasets. The training set will be used to fit our models, while the test set will be reserved for evaluating model performance.
 
 ```{r}
@@ -344,6 +346,8 @@ bike_recipe3 <-
     snowfall_sq = snowfall^2
   )
 ```
+
+# Defining Models
 
 Now that we've created our preprocessing recipes, we'll define a multiple linear regression model using the `"lm"` engine. We'll then combine the model with each recipe in a workflow and evaluate each model using 10-fold cross-validation on the training set. We'll compare the cross-validation results to determine which model performs best.
 
