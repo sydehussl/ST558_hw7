@@ -1,6 +1,8 @@
 ---
 title: "Chris Version"
 format: html
+editor_options: 
+  chunk_output_type: console
 ---
 
 # Data Preparation
@@ -173,7 +175,7 @@ We partition the data into a 75/25 train/test split, stratified by season to pro
 ```{r}
 library(tidymodels)
 
-set.seed(558)
+set.seed(123)
 
 bike_split <- initial_split(bike_rentals, 
                             prop = 3/4,

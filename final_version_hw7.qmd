@@ -1,8 +1,7 @@
 ---
-title: "Ben Version"
+title: "HW7 Final Version"
+author: Ben Glickauf and Chris Grace
 format: html
-editor_options: 
-  chunk_output_type: console
 ---
 
 ```{r}
