@@ -4,9 +4,11 @@ format: html
 editor_options: 
   chunk_output_type: console
 ---
+
 ```{r}
 library(tidyverse)
 library(lubridate)
+library(tidymodels)
 ```
 
 ## Read in the data
@@ -228,3 +230,40 @@ bike_data |>
   cor()
 ```
 
+Next, we'll split the data into training and test sets. We'll use a 75/25 split and stratify on the `seasons` variable so that each season is represented in approximately the same proportion in both datasets. The training set will be used to fit our models, while the test set will be reserved for evaluating model performance.
+
+```{r}
+set.seed(123) # set seed for reproducibility
+
+bike_split <- initial_split(bike_data, prop = 0.75, strata = seasons)
+
+bike_train <- training(bike_split)
+bike_test  <- testing(bike_split)
+```
+
+Now we'll create a 10-fold cross-validation split using the training data. This will allow us to estimate model performance by repeatedly training the model on nine folds and validating it on the remaining fold. Each observation in the training set is used for validation exactly once.
+
+```{r}
+bike_folds <- vfold_cv(bike_train, v = 10, strata = seasons)
+
+bike_folds # check our folds
+```
+
+Now lets create some recipes.
+
+For our first multiple linear regression model, we'll create a recipe to preprocess the data. We won't use the `date` variable directly as a predictor, but we'll use it to create a new `day_type` variable that indicates whether each observation occurred on a weekday or weekend. After creating this variable, we'll remove both the original `date` variable and the day-of-week variable. We'll also standardize the numeric predictors so that they're all on a comparable scale, and we'll create dummy variables for the categorical predictors (`seasons`, `holiday`, and `day_type`) so they can be used in the regression model.
+
+```{r}
+bike_recipe1 <- recipe(rented_bike_count ~ ., data = bike_train) |>
+  step_date(date, features = "dow") |>
+  step_mutate(
+    weekend = factor(
+      if_else(
+        date_dow %in% c("Sat", "Sun"),
+        "Weekend",
+        "Weekday"
+      )
+    )
+  ) |>
+  step_rm(date, date_dow)
+```
