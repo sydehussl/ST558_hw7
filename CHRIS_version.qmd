@@ -3,23 +3,299 @@ title: "Chris Version"
 format: html
 ---
 
-## Quarto
+# Data Preparation
 
-Quarto enables you to weave together content and executable code into a finished document. To learn more about Quarto see <https://quarto.org>.
+Before we can start modeling, we need to examine our data and identify any important relationships.
 
-## Running Code
+## EDA
 
-When you click the **Render** button a document will be generated that includes both content and the output of embedded code. You can embed code like this:
+Starting with reading in the data, R freaks out that there's a degree symbol in one of the column names. I'm avoiding reading the header and instead manually renaming the columns since we'd want to do this anyways.
+```{r}
+bikes_raw <- read.csv("https://www4.stat.ncsu.edu/~online/datasets/SeoulBikeData.csv",
+                  check.names = FALSE)
+
+names(bikes_raw) <- c("date", "bike_count", "hour", "temp",
+                      "humidity", "wind", "visibility", "dew_point",
+                      "solar_rad", "rainfall", "snowfall", "seasons",
+                      "holiday", "functioning_day")
+
+bikes <- bikes_raw
+
+head(bikes)
+```
+Now that we have our data, we can take a look:
 
 ```{r}
-1 + 1
+suppressPackageStartupMessages(library(lubridate))
+suppressPackageStartupMessages(library(dplyr))
+
+# check for missingness
+colSums(is.na(bikes))
+
+# check col types
+str(bikes)
+
+# get summary stats for numeric vars
+summary(bikes |> select(where(is.numeric)))
+
+# get unique vals of char vars
+unique(bikes$seasons)
+unique(bikes$holiday)
+unique(bikes$functioning_day)
+
+# make season, holiday, and functioning day factors
+bikes <-
+  mutate(bikes, across(c(seasons, holiday, functioning_day), as.factor))
+```
+Some observations:
+
+- There are no missing values!
+- There are three factors: `seasons`, `holiday`, and `functioning_day`
+- The other variables are numeric, other than `date`
+- The daily bike count has some right skew (with mean >> median)
+- This area gets very little rainfall/snowfall
+
+We should also take a look at summary stats across the levels of our factors:
+```{r}
+bike_stats <- bikes |>
+                group_by(holiday, seasons, functioning_day) |>
+                summarize(across(where(is.numeric), .fns = list(mean = mean, 
+                                                                median = median)))
+
+bike_stats
+```
+Some more observations:
+
+- When `functioning_day` is `no`, there are no bike rentals (fascinating)
+- Holidays have slightly fewer rentals than non-holidays, on average
+- Seasonal trends follow expectations (fewest in winter, more in autumn, more in spring, most in summer)
+
+## Transforming the Data
+
+We'll make the following adjustments to satisfy the requirements:
+
+- Only include observations on functioning days
+- Group by `date`, `season`, and `holiday`
+- Summarize on hour, sum on `bike_count`, `snowfall`, and `rainfall`, average others
+```{r}
+# get daily aggregate measures
+bike_rentals <- bikes |>
+                mutate(date = dmy(date)) |>
+                filter(functioning_day == "Yes") |>
+                group_by(date, seasons, holiday) |>
+                summarize(
+                  bike_count = sum(bike_count),
+                  rainfall = sum(rainfall),
+                  snowfall = sum(snowfall),
+                  temp = mean(temp),
+                  humidity = mean(humidity),
+                  wind = mean(wind),
+                  visibility = mean(visibility),
+                  dew_point = mean(dew_point),
+                  solar_rad = mean(solar_rad),
+                )
+
+bike_rentals
 ```
 
-You can add options to executable code like this 
+Our new data set looks good! We can recompute the summary stats and see if anything changes:
 
 ```{r}
-#| echo: false
-2 * 2
+summary(bike_rentals |> select(where(is.numeric)))
+```
+Removing non-functioning days definitely affected the summary statistics. Aggregating rainfall and bike count seems to better reflect their tendencies. We can check how the grouped statistics are affected:
+
+```{r}
+bike_stats <- bike_rentals |>
+                group_by(holiday, seasons) |>
+                summarize(across(where(is.numeric), .fns = list(mean = mean, 
+                                                                median = median)))
+
+bike_stats
+```
+Compared to the previous grouped summary statistics, we see a greater delta between holidays and non-holidays, especially for the spring and winter seasons. This suggests there might be merit to adding an interaction term to our model.
+
+Next, we'll create some BASIC (no time for labeling) plots so we can visually investigate these relationships:
+
+```{r}
+library(ggplot2)
+
+# bike rentals by season
+p1 <- ggplot(bike_rentals, aes(x = bike_count, fill = seasons)) +
+      geom_boxplot() +
+      labs(title = "Bike Count vs. Season")
+
+# bike rentals by rainfall (by holiday)
+p2 <- ggplot(bike_rentals, aes(x = rainfall, y = bike_count, color = holiday)) +
+      geom_point() +
+      labs(title = "Bike Count vs. Rainfall by Holiday")
+
+# bike rentals by snowfall (by holiday)
+p3 <- ggplot(bike_rentals, aes(x = snowfall, y = bike_count, color = holiday)) +
+      geom_point() +
+      labs(title = "Bike Count vs. Snowfall by Holiday")
+
+# bike rentals by temperature
+p4 <- ggplot(bike_rentals, aes(x = temp, y = bike_count, color = seasons)) +
+      geom_point() +
+      geom_smooth() +
+      labs(title = "Bike Count vs. Temperature by Season")
+
+p1
+```
+The boxplot shows clearly that bike rentals are lowest in the winter. Spring has the widest variation in bike rentals, while summer appears to have the most symmetric distribution of bike rentals.
+
+Next, we look at rainfall and snowfall:
+```{r}
+p2
+p3
+```
+Both metrics are loosely associated with bike rentals. Rainfall seems to have a moderately strong, negative association with the number of bike rentals. Snowfall has a weak correlation.
+
+Finally, we'll take a look at the relationship between temperature and bike rentals:
+```{r}
+p4
 ```
 
-The `echo: false` option disables the printing of code (only output is displayed).
+This plot shows a generally positive relationship between temperature and bike rentals, although there is a point where this relationship inverts (20 degrees C in spring, 27 degrees C in summer). 
+
+Lastly, we'll measure the association between numeric variables by their correlation:
+```{r}
+num_vars <- bike_rentals |>
+              ungroup() |>
+              select(where(is.numeric))
+
+cor(num_vars)
+```
+# Splitting the Data
+
+We partition the data into a 75/25 train/test split, stratified by season to provide even coverage. Then, we create a 10 fold CV split on the training set.
+```{r}
+library(tidymodels)
+
+set.seed(558)
+
+bike_split <- initial_split(bike_rentals, 
+                            prop = 3/4,
+                            strata = seasons)
+
+bike_test <- testing(bike_split)
+bike_train <- training(bike_split)
+
+bike_folds <- vfold_cv(bike_rentals, v = 10)
+```
+
+# Making Recipes
+Our first recipe will create a "weekend" true/false flag to use in our model. We also normalize the numeric predictors and create dummy variables for our categorical predictors.
+```{r}
+rec_1 <- 
+  recipe(bike_count ~ ., data = bike_rentals) |>
+  update_role(date, new_role = "ID") |>
+  step_date(date, features = "dow") |>
+  step_mutate(weekend = factor(if_else(date_dow %in% c("Sat", "Sun"),
+                                        TRUE, FALSE)),
+              keep_original_cols = FALSE) |>
+  step_normalize(all_numeric_predictors()) |>
+  step_dummy(all_nominal_predictors()) |>
+  step_zv(all_predictors())
+```
+
+In recipe 2, we add interaction terms to the previous recipe:
+
+```{r}
+rec_2 <-
+  rec_1 |>
+  step_interact(terms = ~ starts_with("seasons"):starts_with("holiday")) |>
+  step_interact(terms = ~ starts_with("seasons"):temp) |>
+  step_interact(terms = ~ rainfall:temp)
+```
+
+Finally in recipe 3, we add quadratic (second-order) terms to the model:
+```{r}
+rec_3 <-
+  rec_2 |>
+  step_mutate(rainfall_sq = rainfall ^ 2,
+              snowfall_sq = snowfall ^ 2,
+              temp_sq = temp ^ 2,
+              humidity_sq = humidity ^ 2,
+              wind_sq = wind ^2,
+              visibility_sq = visibility ^ 2,
+              dew_point_sq = dew_point ^ 2,
+              solar_rad_sq = solar_rad ^ 2)
+              
+```
+
+# Create and Fit Models
+
+We're ready to fit the models! First, we need to specify the type and engine for the model. After that, we create the workflows using the recipes we created earlier.
+```{r}
+# define model and engine
+bike_mod <-
+  linear_reg() |>
+  set_engine("lm")
+
+# create workflows 1-3
+bike_wf1 <-
+  workflow() |>
+  add_recipe(rec_1) |>
+  add_model(bike_mod)
+
+bike_wf2 <-
+  workflow() |>
+  add_recipe(rec_2) |>
+  add_model(bike_mod)
+
+bike_wf3 <-
+  workflow() |>
+  add_recipe(rec_3) |>
+  add_model(bike_mod)
+
+# fit models to training data
+bike_fit1 <-
+  fit_resamples(
+    bike_wf1,
+    resamples = bike_folds
+  )
+
+bike_fit2 <-
+  fit_resamples(
+    bike_wf2,
+    resamples = bike_folds
+  )
+
+bike_fit3 <-
+  fit_resamples(
+    bike_wf3,
+    resamples = bike_folds
+  )
+
+```
+We can get the training loss metrics with `collect_metrics()`:
+
+```{r}
+collect_metrics(bike_fit1)
+collect_metrics(bike_fit2)
+collect_metrics(bike_fit3)
+```
+
+Looking at the output, the first model has the lowest RMSE and standard error so it's our final model.
+
+# Fitting the Final Model
+
+Lastly, we fit the final model to the entire training set and extract the test RMSE:
+```{r}
+final_fit <-
+  bike_wf1 |>
+  last_fit(bike_split)
+
+collect_metrics(final_fit)
+```
+Our final model has a test RMSE of 4255, which is slightly higher than the test CV RMSE for this model. We can obtain the predicted coefficients with `extract_fit_parsnip`:
+
+```{r}
+final_fit |>
+  extract_fit_parsnip() |>
+  tidy()
+```
+
+Note that these values have been standardized!
