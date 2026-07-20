@@ -6,8 +6,9 @@
 
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
 
+<meta name="author" content="Ben Glickauf and Chris Grace">
 
-<title>Ben Version</title>
+<title>HW7 Final Version</title>
 <style>
 /* Default styles provided by pandoc.
 ** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
@@ -150,13 +151,19 @@ window.Quarto = {
 
 <header id="title-block-header" class="quarto-title-block default">
 <div class="quarto-title">
-<h1 class="title">Ben Version</h1>
+<h1 class="title">HW7 Final Version</h1>
 </div>
 
 
 
 <div class="quarto-title-meta">
 
+    <div>
+    <div class="quarto-title-meta-heading">Author</div>
+    <div class="quarto-title-meta-contents">
+             <p>Ben Glickauf and Chris Grace </p>
+          </div>
+  </div>
     
   
     
@@ -740,6 +747,9 @@ dew_point_temp         0.38315713
 solar_radiation        1.00000000</code></pre>
 </div>
 </div>
+</section>
+<section id="splitting-the-data" class="level1">
+<h1>Splitting the Data</h1>
 <p>Next, we’ll split the data into training and test sets. We’ll use a 75/25 split and stratify on the <code>seasons</code> variable so that each season is represented in approximately the same proportion in both datasets. The training set will be used to fit our models, while the test set will be reserved for evaluating model performance.</p>
 <div class="cell">
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb47"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb47-1"><a href="#cb47-1" aria-hidden="true" tabindex="-1"></a><span class="fu">set.seed</span>(<span class="dv">123</span>) <span class="co"># set seed for reproducibility</span></span>
@@ -842,6 +852,9 @@ solar_radiation        1.00000000</code></pre>
 <span id="cb52-27"><a href="#cb52-27" aria-hidden="true" tabindex="-1"></a>    <span class="at">snowfall_sq =</span> snowfall<span class="sc">^</span><span class="dv">2</span></span>
 <span id="cb52-28"><a href="#cb52-28" aria-hidden="true" tabindex="-1"></a>  )</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 </div>
+</section>
+<section id="defining-models" class="level1">
+<h1>Defining Models</h1>
 <p>Now that we’ve created our preprocessing recipes, we’ll define a multiple linear regression model using the <code>"lm"</code> engine. We’ll then combine the model with each recipe in a workflow and evaluate each model using 10-fold cross-validation on the training set. We’ll compare the cross-validation results to determine which model performs best.</p>
 <div class="cell">
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb53"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb53-1"><a href="#cb53-1" aria-hidden="true" tabindex="-1"></a><span class="co"># define the model</span></span>
@@ -888,7 +901,7 @@ solar_radiation        1.00000000</code></pre>
 <pre><code>There were issues with some computations   A: x1</code></pre>
 </div>
 <div class="cell-output cell-output-stderr">
-<pre><code>There were issues with some computations   A: x7</code></pre>
+<pre><code>There were issues with some computations   A: x6</code></pre>
 </div>
 <div class="cell-output cell-output-stderr">
 <pre><code>There were issues with some computations   A: x10</code></pre>
@@ -905,7 +918,7 @@ solar_radiation        1.00000000</code></pre>
 <pre><code>→ A | warning: prediction from rank-deficient fit; consider predict(., rankdeficient="NA")</code></pre>
 </div>
 <div class="cell-output cell-output-stderr">
-<pre><code>There were issues with some computations   A: x9</code></pre>
+<pre><code>There were issues with some computations   A: x8</code></pre>
 </div>
 <div class="cell-output cell-output-stderr">
 <pre><code>There were issues with some computations   A: x10</code></pre>
